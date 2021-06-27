@@ -13,3 +13,4 @@ class ReplayMemory():
 
     def sample(self,batch_size):
         return random.sample(self.replay_memory, batch_size)
+

@@ -37,7 +37,7 @@ class CriticNet(nn.Module):
         self.fc1 = nn.Linear(n_states,400)
         self.fc2 = nn.Linear(400 + n_actions,300)
         self.fc3 = nn.Linear(300,1)
-        nn.relu = nn.ReLU()
+        self.relu = nn.ReLU()
         #no activation required
 
     def initialize_weights(self,init_weight,f):
@@ -52,6 +52,6 @@ class CriticNet(nn.Module):
 
     def forward(self,state,action):
         out = self.relu(self.fc1(state))
-        out = self.fc3(self.relu(self.fc2(torch.cat([out,action]))))
+        out = self.fc3(self.relu(self.fc2(torch.cat([out,action],1))))
         return out
 

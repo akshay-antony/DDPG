@@ -16,6 +16,7 @@ class DDPGAgent:
         self.n_actions = self.env.action_space.shape[0]
         self.gamma = gamma
         self.tau = tau
+        self.loss = nn.MSELoss()
         self.actor_lr = 1e-4
         self.critic_lr = 1e-3
 
@@ -23,25 +24,27 @@ class DDPGAgent:
         self.actor.initialize_weights(3e-3,400)
         self.target_actor = ActorNet(self.n_states,self.n_actions)
         self.target_actor.load_state_dict(self.actor.state_dict())
-        
+        self.target_actor.eval()
+
         self.critic = CriticNet(self.n_states,self.n_actions)
         self.critic.initialize_weights(3e-3,400)
         self.target_critic = CriticNet(self.n_states,self.n_actions)
         self.target_critic.load_state_dict(self.critic.state_dict())
+        self.target_critic.eval()
 
         self.actor_optimizer = optim.Adam(self.actor.parameters(),self.actor_lr)
         self.critic_optimizer = optim.Adam(self.critic.parameters(),self.critic_lr)
 
-        self.replay_memory_size = 1e6
+        self.replay_memory_size = 1000000
         self.batch_size = 64
         self.memory = ReplayMemory(self.replay_memory_size)
 
         self.noise = Noise(self.n_actions)
 
     def get_action(self,state):
-        action = self.actor.forward(state)  #check if unsqueeze req
+        action = self.actor.forward(torch.as_tensor(state,dtype=torch.float32))  #check if unsqueeze req
         action += self.noise.add_noise()
-        return (torch.clamp(action,min=-1,max=1)).numpy()
+        return (torch.clamp(action,min=-1,max=1)).detach().numpy()
 
     def add_memory(self,transition):
         self.memory.replay_memory.append(transition)
@@ -63,17 +66,18 @@ class DDPGAgent:
         done = torch.as_tensor(done, dtype=torch.float32)
 
         #train the critic
-        n_actions = self.target_actor(states)
+        n_actions = self.target_actor.forward(states)
         targets = self.calculate_return(rewards,n_states,done,n_actions)
         critic_values = self.critic.forward(states,actions)
-        critic_loss = nn.MSELoss(targets,critic_values)
+        #print("targets",targets.size())
+        critic_loss = self.loss(targets,critic_values)
         self.critic_optimizer.zero_grad()
         critic_loss.backward()
         self.critic_optimizer.step()
 
         #train the actor
-        actor_new_actions = self.actor(states)
-        actor_loss = -self.critic(states,actor_new_actions)
+        actor_new_actions = self.actor.forward(states)
+        actor_loss = -self.critic.forward(states,actor_new_actions)
         actor_loss = actor_loss.mean()
         self.actor_optimizer.zero_grad()
         actor_loss.backward()
@@ -84,9 +88,9 @@ class DDPGAgent:
 
     def calculate_return(self,rewards,n_states,done,actions):
         out = self.target_critic.forward(n_states,actions)
-        targets = rewards + self.gamma*out*(1-done)
+        targets = rewards.unsqueeze(1) + self.gamma*out*(1-done.unsqueeze(1))
         return targets
 
     def update_step(self,model,target_model):
         for model_params, target_model_params in zip(model.parameters(),target_model.parameters()):
-            target_model_params.copy((1-self.tau)*target_model_params+self.tau*model_params)
+            target_model_params.data.copy_((1-self.tau)*target_model_params.data + self.tau*model_params.data)
